@@ -1,0 +1,458 @@
+﻿################################################################################
+# Copyright (c) 2019, Microsoft Corporation. All rights reserved.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+# Filename: ExternalToken.ps1
+# Description: IIS/WCF common functions
+# Owner: Rodney Viana leveraging code by Gyorgy Homolya
+# Created On: 04/03/2019 5:29 PM
+#
+# Last Modified On: 12/19/2018 5:29 PM (UTC-6)
+#################################################################################
+
+
+
+
+
+###############################################################################
+### Update the Site collection URL and the UserNT account  ####################
+###############################################################################
+
+$sitecollection = "http://portal.contoso.com/sites/siteA"
+
+
+$UserNT = 'i:0#.w|contoso\user1'
+
+
+###############################################################################
+###############################################################################
+
+
+Set-StrictMode -Version Latest
+
+
+$isCompiled = Get-Variable -Name TokenCompiled -Scope 'Global' -ErrorAction SilentlyContinue
+
+
+if($isCompiled -eq $null -or $isCompiled.Value -ne $true)
+{
+    Set-Variable -Name TokenCompiled -Scope 'Global' -Value $true -Force
+    $code = @"
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace DecodeTokenAPI
+{
+    public enum SPVersion
+    {
+        SharePoint2007,
+        SharePoint2013,
+        SharePoint2016,
+        SharePoint2019
+    }
+    public class DecodeToken
+    {
+
+        public static Dictionary<char, string> DictBasicClaimTypes2016
+        {
+            get
+            {
+                Dictionary<char, string> dictionary = new Dictionary<char, string>();
+                dictionary.Add('!', "SPClaimTypes.IdentityProvider");
+                dictionary.Add('"', "SPClaimTypes.UserIdentifier");
+                dictionary.Add('#', "SPClaimTypes.UserLogonName");
+                dictionary.Add('$', "SPClaimTypes.DistributionListClaimType");
+                dictionary.Add('%', "SPClaimTypes.FarmId");
+                dictionary.Add('&', "http://schemas.microsoft.com/sharepoint/2009/08/claims/processidentitysid");
+                dictionary.Add('\'', "http://schemas.microsoft.com/sharepoint/2009/08/claims/processidentitylogonname");
+                dictionary.Add('(', "SPClaimTypes.IsAuthenticated");
+                dictionary.Add(')', "Microsoft.IdentityModel.Claims.ClaimTypes.PrimarySid");
+                dictionary.Add('*', "Microsoft.IdentityModel.Claims.ClaimTypes.PrimaryGroupSid");
+                dictionary.Add('+', "Microsoft.IdentityModel.Claims.ClaimTypes.GroupSid");
+                dictionary.Add('-', "Microsoft.IdentityModel.Claims.ClaimTypes.Role");
+                dictionary.Add('.', "System.IdentityModel.Claims.ClaimTypes.Anonymous");
+                dictionary.Add('/', "System.IdentityModel.Claims.ClaimTypes.Authentication");
+                dictionary.Add('0', "System.IdentityModel.Claims.ClaimTypes.AuthorizationDecision");
+                dictionary.Add('1', "System.IdentityModel.Claims.ClaimTypes.Country");
+                dictionary.Add('2', "System.IdentityModel.Claims.ClaimTypes.DateOfBirth");
+                dictionary.Add('3', "System.IdentityModel.Claims.ClaimTypes.DenyOnlySid");
+                dictionary.Add('4', "System.IdentityModel.Claims.ClaimTypes.Dns");
+                dictionary.Add('5', "System.IdentityModel.Claims.ClaimTypes.Email");
+                dictionary.Add('6', "System.IdentityModel.Claims.ClaimTypes.Gender");
+                dictionary.Add('7', "System.IdentityModel.Claims.ClaimTypes.GivenName");
+                dictionary.Add('8', "System.IdentityModel.Claims.ClaimTypes.Hash");
+                dictionary.Add('9', "System.IdentityModel.Claims.ClaimTypes.HomePhone");
+                dictionary.Add('<', "System.IdentityModel.Claims.ClaimTypes.Locality");
+                dictionary.Add('=', "System.IdentityModel.Claims.ClaimTypes.MobilePhone");
+                dictionary.Add('>', "System.IdentityModel.Claims.ClaimTypes.Name");
+                dictionary.Add('?', "System.IdentityModel.Claims.ClaimTypes.NameIdentifier");
+                dictionary.Add('@', "System.IdentityModel.Claims.ClaimTypes.OtherPhone");
+                dictionary.Add('[', "System.IdentityModel.Claims.ClaimTypes.PostalCode");
+                dictionary.Add('\\', "System.IdentityModel.Claims.ClaimTypes.PPID");
+                dictionary.Add(']', "System.IdentityModel.Claims.ClaimTypes.Rsa");
+                dictionary.Add('^', "System.IdentityModel.Claims.ClaimTypes.Sid");
+                dictionary.Add('_', "System.IdentityModel.Claims.ClaimTypes.Spn");
+                dictionary.Add('``', "System.IdentityModel.Claims.ClaimTypes.StateOrProvince");
+                dictionary.Add('a', "System.IdentityModel.Claims.ClaimTypes.StreetAddress");
+                dictionary.Add('b', "System.IdentityModel.Claims.ClaimTypes.Surname");
+                dictionary.Add('c', "System.IdentityModel.Claims.ClaimTypes.System");
+                dictionary.Add('d', "System.IdentityModel.Claims.ClaimTypes.Thumbprint");
+                dictionary.Add('e', "System.IdentityModel.Claims.ClaimTypes.Upn");
+                dictionary.Add('f', "System.IdentityModel.Claims.ClaimTypes.Uri");
+                dictionary.Add('g', "System.IdentityModel.Claims.ClaimTypes.Webpage");
+                dictionary.Add('h', "SPClaimTypes.ProviderUserKey");
+                dictionary.Add('i', "SPClaimTypes.NameId");
+                dictionary.Add('j', "SPClaimTypes.UserPrincipalName");
+                dictionary.Add('k', "SPClaimTypes.NameIdIssuer");
+                dictionary.Add('l', "SPClaimTypes.SMTP");
+                dictionary.Add('m', "SPClaimTypes.SIP");
+                dictionary.Add('n', "SPClaimTypes.ClaimProviderContext");
+                dictionary.Add('o', "SPClaimTypes.ModernGroupClaimType");
+                dictionary.Add('p', "SPClaimTypes.FederatedDirectoryUserId");
+                dictionary.Add('q', "SPClaimTypes.AlternativeNameId");
+                dictionary.Add('r', "SPClaimTypes.AlternativeNameIdIssuer");
+                dictionary.Add('s', "SPClaimTypes.ReleaseProgram");
+                return dictionary;
+            }
+        }
+
+        public static Dictionary<char, string> DictBasicClaimTypes2013
+        {
+            get
+            {
+                Dictionary<char, string> dictionary = new Dictionary<char, string>();
+                dictionary.Add('!', "SPClaimTypes.IdentityProvider");
+                dictionary.Add('"', "SPClaimTypes.UserIdentifier");
+                dictionary.Add('#', "SPClaimTypes.UserLogonName");
+                dictionary.Add('$', "SPClaimTypes.DistributionListClaimType");
+                dictionary.Add('%', "SPClaimTypes.FarmId");
+                dictionary.Add('&', "http://schemas.microsoft.com/sharepoint/2009/08/claims/processidentitysid");
+                dictionary.Add('\'', "http://schemas.microsoft.com/sharepoint/2009/08/claims/processidentitylogonname");
+                dictionary.Add('(', "SPClaimTypes.IsAuthenticated");
+                dictionary.Add(')', "Microsoft.IdentityModel.Claims.ClaimTypes.PrimarySid");
+                dictionary.Add('*', "Microsoft.IdentityModel.Claims.ClaimTypes.PrimaryGroupSid");
+                dictionary.Add('+', "Microsoft.IdentityModel.Claims.ClaimTypes.GroupSid");
+                dictionary.Add('-', "Microsoft.IdentityModel.Claims.ClaimTypes.Role");
+                dictionary.Add('.', "System.IdentityModel.Claims.ClaimTypes.Anonymous");
+                dictionary.Add('/', "System.IdentityModel.Claims.ClaimTypes.Authentication");
+                dictionary.Add('0', "System.IdentityModel.Claims.ClaimTypes.AuthorizationDecision");
+                dictionary.Add('1', "System.IdentityModel.Claims.ClaimTypes.Country");
+                dictionary.Add('2', "System.IdentityModel.Claims.ClaimTypes.DateOfBirth");
+                dictionary.Add('3', "System.IdentityModel.Claims.ClaimTypes.DenyOnlySid");
+                dictionary.Add('4', "System.IdentityModel.Claims.ClaimTypes.Dns");
+                dictionary.Add('5', "System.IdentityModel.Claims.ClaimTypes.Email");
+                dictionary.Add('6', "System.IdentityModel.Claims.ClaimTypes.Gender");
+                dictionary.Add('7', "System.IdentityModel.Claims.ClaimTypes.GivenName");
+                dictionary.Add('8', "System.IdentityModel.Claims.ClaimTypes.Hash");
+                dictionary.Add('9', "System.IdentityModel.Claims.ClaimTypes.HomePhone");
+                dictionary.Add('<', "System.IdentityModel.Claims.ClaimTypes.Locality");
+                dictionary.Add('=', "System.IdentityModel.Claims.ClaimTypes.MobilePhone");
+                dictionary.Add('>', "System.IdentityModel.Claims.ClaimTypes.Name");
+                dictionary.Add('?', "System.IdentityModel.Claims.ClaimTypes.NameIdentifier");
+                dictionary.Add('@', "System.IdentityModel.Claims.ClaimTypes.OtherPhone");
+                dictionary.Add('[', "System.IdentityModel.Claims.ClaimTypes.PostalCode");
+                dictionary.Add('\\', "System.IdentityModel.Claims.ClaimTypes.PPID");
+                dictionary.Add(']', "System.IdentityModel.Claims.ClaimTypes.Rsa");
+                dictionary.Add('^', "System.IdentityModel.Claims.ClaimTypes.Sid");
+                dictionary.Add('_', "System.IdentityModel.Claims.ClaimTypes.Spn");
+                dictionary.Add('``', "System.IdentityModel.Claims.ClaimTypes.StateOrProvince");
+                dictionary.Add('a', "System.IdentityModel.Claims.ClaimTypes.StreetAddress");
+                dictionary.Add('b', "System.IdentityModel.Claims.ClaimTypes.Surname");
+                dictionary.Add('c', "System.IdentityModel.Claims.ClaimTypes.System");
+                dictionary.Add('d', "System.IdentityModel.Claims.ClaimTypes.Thumbprint");
+                dictionary.Add('e', "System.IdentityModel.Claims.ClaimTypes.Upn");
+                dictionary.Add('f', "System.IdentityModel.Claims.ClaimTypes.Uri");
+                dictionary.Add('g', "System.IdentityModel.Claims.ClaimTypes.Webpage");
+                dictionary.Add('h', "SPClaimTypes.ProviderUserKey");
+               dictionary.Add('i', "SPClaimTypes.NameId");
+                dictionary.Add('j', "SPClaimTypes.UserPrincipalName");
+                dictionary.Add('k', "SPClaimTypes.NameIdIssuer");
+                dictionary.Add('l', "SPClaimTypes.SMTP");
+                dictionary.Add('m', "SPClaimTypes.SIP");
+                dictionary.Add('n', "SPClaimTypes.ClaimProviderContext");
+                return dictionary;
+            }
+        }
+
+        [DllImport("advapi32", CharSet = CharSet.Auto, SetLastError = true)]
+        internal static extern bool ConvertSidToStringSid([MarshalAs(UnmanagedType.LPArray)] byte[] pSID, out IntPtr ptrSid);
+
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        internal static extern IntPtr LocalFree(IntPtr hMem);
+
+        public DecodeToken()
+        {
+            version = SPVersion.SharePoint2016;
+        }
+
+        public DecodeToken(SPVersion Version)
+        {
+            version = Version;
+        }
+        public SPVersion version
+        {
+            get; set;
+        }
+
+        internal byte[] tokenBin;
+
+        void SetBinary(string TokenString)
+        {
+            if (String.IsNullOrWhiteSpace(TokenString) || TokenString.Length % 2 != 0)
+            {
+                throw new ArgumentException("Token is either empty or malformed");
+            }
+
+            tokenBin = new byte[TokenString.Substring(0, 2) == "0x" ? (TokenString.Length / 2) - 1 : TokenString.Length / 2];
+            int b = 0;
+            for (int i = 0; i < TokenString.Length; i += 2)
+            {
+                if (0 == i && TokenString.Substring(0, 2) == "0x")
+                {
+                    continue;
+                }
+
+                tokenBin[b] = byte.Parse(TokenString.Substring(i, 2), NumberStyles.HexNumber);
+                b++;
+            }
+        }
+
+        public string GetSidString(byte[] sid)
+        {
+            IntPtr intPtr;
+            if (!ConvertSidToStringSid(sid, out intPtr))
+            {
+                throw new Win32Exception();
+            }
+            try
+            {
+                return Marshal.PtrToStringAuto(intPtr);
+            }
+            finally
+            {
+                LocalFree(intPtr);
+            }
+        }
+
+        private string ByteArrayToString(byte[] array, Encoding en)
+        {
+            return en.GetString(array);
+        }
+        protected string Decode2013(Dictionary<char, string> ClaimsDictionary)
+        {
+            StringBuilder stringBuilder = new StringBuilder();
+            try
+            {
+                BinaryReader binaryReader = new BinaryReader(new MemoryStream(tokenBin));
+                DateTime dateTime = new DateTime(1899, 1, 1, 0, 0, 0, 0, new GregorianCalendar(), DateTimeKind.Utc);
+                long num = binaryReader.ReadInt64();
+                stringBuilder.AppendFormat("timeTokenGenerated:{0}", dateTime.AddSeconds((double)num).ToString("yyyy-MM-dd HH:mm:ss"));
+                stringBuilder.AppendLine();
+                stringBuilder.AppendFormat("tokenSize:{0}", binaryReader.ReadUInt32());
+                stringBuilder.AppendLine();
+                uint num2 = binaryReader.ReadUInt32();
+                stringBuilder.AppendFormat("Magicnum1:{0},verification result:{1}", num2, (num2 == 3941330671u) ? "this token seems to be correct" : "invalid token");
+                stringBuilder.AppendLine();
+                int num3 = binaryReader.ReadInt32();
+                stringBuilder.AppendFormat("Authentication type:{0}", (num3 == 3) ? "Claims" : "Windows");
+                stringBuilder.AppendLine();
+                int num4 = binaryReader.ReadInt32();
+                stringBuilder.AppendFormat("Userid length:{0}", num4);
+                stringBuilder.AppendLine();
+                int num5 = binaryReader.ReadInt32();
+                stringBuilder.AppendFormat("Length of group ids in bytes:{0}", num5);
+                stringBuilder.AppendLine();
+                uint num6 = binaryReader.ReadUInt32();
+                stringBuilder.AppendFormat("Magicnum2:{0},verification result:{1}", num6, (num6 == 3671842527u) ? "this token seems to be correct" : "invalid token");
+                stringBuilder.AppendLine();
+                int num7 = binaryReader.ReadInt32();
+                stringBuilder.AppendFormat("Authentication type:");
+                switch (num7)
+                {
+                    case 0:
+                        stringBuilder.AppendFormat("Unknown");
+                        break;
+                    case 1:
+                        stringBuilder.AppendFormat("None");
+                        break;
+                    case 2:
+                        stringBuilder.AppendFormat("AppName");
+                        break;
+                    case 3:
+                        stringBuilder.AppendFormat("HostName");
+                        break;
+                }
+                stringBuilder.AppendLine();
+                int num8 = binaryReader.ReadInt32();
+                stringBuilder.AppendFormat("Length of app principal data in bytes:{0}", num8);
+                stringBuilder.AppendLine();
+                byte[] array = binaryReader.ReadBytes(num4);
+                if (num3 == 3)
+                {
+                    stringBuilder.AppendFormat("Userid:{0}", ByteArrayToString(array, Encoding.UTF8));
+                }
+                else
+                {
+                    stringBuilder.AppendFormat("Userid:{0}", GetSidString(array));
+                }
+                stringBuilder.AppendLine();
+                if (num5 > 0)
+                {
+                    long position = binaryReader.BaseStream.Position;
+                    int num9 = binaryReader.ReadInt32();
+                    stringBuilder.AppendFormat("Number of group ids:{0}", num9);
+                    stringBuilder.AppendLine();
+                    uint[] array2 = new uint[num9];
+                    uint[] array3 = new uint[num9];
+                    for (uint num10 = 0u; num10 < num9; num10++)
+                    {
+                        array2[num10] = binaryReader.ReadUInt32();
+                        array3[num10] = binaryReader.ReadUInt32();
+                    }
+                    for (uint num11 = 0u; num11 < num9; num11++)
+                    {
+                        binaryReader.BaseStream.Seek(array2[num11] + position, SeekOrigin.Begin);
+                        if (num3 == 3)
+                        {
+                            byte[] array4 = binaryReader.ReadBytes((int)array3[num11]);
+                            string text2 = ByteArrayToString(array4, Encoding.UTF8);
+                            stringBuilder.AppendFormat("Groupid{0}:{1}", num11.ToString("000"), text2);
+                            if (ClaimsDictionary.ContainsKey(text2[3]))
+                            {
+                                stringBuilder.AppendFormat("\t claimtype:{0}", ClaimsDictionary[text2[3]]);
+                            }
+                            else if (text2[3] == 'w')
+                            {
+                                stringBuilder.AppendFormat("\t claimtype:windows");
+                            }
+                            else
+                            {
+                                stringBuilder.AppendFormat("\t claimtype:[custom]");
+                            }
+                            stringBuilder.AppendLine();
+                        }
+                        else
+                        {
+                            byte[] sid = binaryReader.ReadBytes(66);
+                            stringBuilder.AppendFormat("Groupid{0}:{1}", num11.ToString("000"), GetSidString(sid));
+                            stringBuilder.AppendLine();
+                        }
+                    }
+                }
+                if (num8 > 0)
+                {
+                    byte[] array5 = binaryReader.ReadBytes(num8);
+                    stringBuilder.AppendFormat("Appprincipal:{0}", ByteArrayToString(array5, Encoding.UTF8));
+                    stringBuilder.AppendLine();
+                }
+                
+            }
+            catch (Exception ex)
+            {
+                return "Decode failed:\n" + ex.ToString() + "\n" + stringBuilder.ToString();
+            }
+            return stringBuilder.ToString();
+        }
+
+        public string Decode(byte[] TokenBinary)
+        {
+            tokenBin = TokenBinary;
+            switch(version)
+            {
+                case SPVersion.SharePoint2013:
+                    return Decode2013(DictBasicClaimTypes2013);
+                case SPVersion.SharePoint2016:
+                    return Decode2013(DictBasicClaimTypes2016);
+                case SPVersion.SharePoint2019:
+                    return Decode2013(DictBasicClaimTypes2016);
+
+                default:
+                    throw new ArgumentException("Type not recognized");
+            }
+        }
+
+        public string Decode(string TokenString)
+        {
+            SetBinary(TokenString);
+            return Decode(tokenBin);
+        }
+    }
+
+}
+
+"@
+
+    Add-Type -TypeDefinition $code
+
+}
+
+
+function Decode-ExternalToken([string]$TokenString, $SPVersion)
+{
+       $Token = New-Object  "DecodeTokenAPI.DecodeToken" -ArgumentList $SPVersion;
+       return $Token.Decode($TokenString);
+
+}
+
+ 
+function Run-SQLQuery ($SqlServer, $SqlDatabase, $SqlQuery)
+{
+$SqlConnection = New-Object System.Data.SqlClient.SqlConnection
+$SqlConnection.ConnectionString = "Server =" + $SqlServer + "; Database =" + $SqlDatabase + "; Integrated Security = True"
+$SqlCmd = New-Object System.Data.SqlClient.SqlCommand
+$SqlCmd.CommandText = $SqlQuery
+$SqlCmd.Connection = $SqlConnection
+$SqlAdapter = New-Object System.Data.SqlClient.SqlDataAdapter
+$SqlAdapter.SelectCommand = $SqlCmd
+$DataSet = New-Object System.Data.DataSet
+$SqlAdapter.Fill($DataSet)
+$SqlConnection.Close()
+$DataSet.Tables[0]
+} 
+ 
+
+
+$build = (Get-SPFarm).Buildversion.major
+if($build = 15) { $farmversion = "SharePoint2013" }
+if($build = 16) { $farmversion = "SharePoint2016" }
+
+$site = get-spsite $sitecollection
+$siteid = $site.ID
+$DBServer = $site.Contentdatabase.server
+$Database = $site.Contentdatabase.name
+
+$query = "SELECT [tp_ExternalToken] FROM Userinfo where tp_SiteID like '" + $site.id  + "' and tp_Login like $UserNT"
+$user = Run-SQLQuery -SqlServer $DBServer -SqlDatabase $Database -SqlQuery $query
+$usertoken = $user[1].tp_ExternalToken
+
+
+[System.Text.StringBuilder]$str =  "0x";
+for($i=0; $i -lt $userToken.Count; $i++)
+{
+   $str.Append(([System.String]::Format("{0:X2}", $userToken[$i]))) | out-null
+}
+$tokenStr = $str.ToString() 
+
+cls
+
+Decode-ExternalToken -TokenString $tokenStr -SPVersion $farmversion
+
+
+
+
+
+
+
